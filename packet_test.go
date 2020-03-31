@@ -9,7 +9,7 @@ func TestFramesIterator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer inputCtx.CloseInputAndRelease()
+	defer inputCtx.Free()
 
 	cnt := 0
 
@@ -20,17 +20,19 @@ func TestFramesIterator(t *testing.T) {
 
 		ist := assert(inputCtx.GetStream(0)).(*Stream)
 
-		frame, err := packet.Frames(ist.CodecCtx())
+		ist.CodecCtx().Decode(packet)
+
+		frames, err := ist.CodecCtx().Decode(packet)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if frame == nil {
+		if frames == nil {
 			t.Fatal("Frame is nil")
 		}
 
 		cnt++
 
-		Release(packet)
+		packet.Free()
 	}
 
 	if cnt != 25 {

@@ -32,7 +32,7 @@ func TestScale(t *testing.T) {
 	dstCodecCtx.SetProfile(FF_PROFILE_MPEG4_SIMPLE)
 
 	outputCtx := NewCtx()
-	defer Release(outputCtx)
+	defer outputCtx.Free()
 
 	videoStream := outputCtx.NewStream(codec)
 	if videoStream == nil {
@@ -46,11 +46,14 @@ func TestScale(t *testing.T) {
 
 	videoStream.SetCodecCtx(dstCodecCtx)
 
-	swsCtx := NewSwsCtx(srcEncCtx, dstCodecCtx, SWS_BICUBIC)
-	defer Release(swsCtx)
+	swsCtx,err := NewSwsCtx( srcWidth,srcHeight,srcEncCtx.PixFmt() , dstWidth,dstHeight,dstCodecCtx.PixFmt() , SWS_BICUBIC)
+	if err != nil {
+		t.Fatalf("error creating sws contex %v\n" , err)
+	}
+	defer swsCtx.Free()
 
 	dstFrame := NewFrame().SetWidth(dstWidth).SetHeight(dstHeight).SetFormat(AV_PIX_FMT_YUV420P)
-	defer Release(dstFrame)
+	defer dstFrame.Free()
 
 	if err := dstFrame.ImgAlloc(); err != nil {
 		t.Fatal(err)
@@ -63,7 +66,7 @@ func TestScale(t *testing.T) {
 
 		swsCtx.Scale(frame, dstFrame)
 
-		Release(frame)
+		frame.Free()
 		break
 	}
 
