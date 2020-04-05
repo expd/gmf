@@ -23,12 +23,55 @@ import "C"
 
 import (
 	"fmt"
+	"unsafe"
 )
 
 type SwrCtx struct {
-	swrCtx   *C.struct_SwrContext
-	channels int
-	format   int32
+	swrCtx       *C.struct_SwrContext
+	channels     int
+	format       int32
+	sampleRate   int
+	inSampleRate int
+	layout       int
+}
+
+var AV_ROUND_UP uint32 = C.AV_ROUND_UP
+
+//
+func NewSwrCtxWithParams(in_channel_count int, in_sample_format int32, in_sample_rate int,
+	out_channel_count int, out_sample_format int32, out_sample_rate int) (*SwrCtx, error) {
+	in_channel_layout := C.int64_t(C.av_get_default_channel_layout(C.int(in_channel_count)))
+	out_channel_layout := C.int64_t(C.av_get_default_channel_layout(C.int(out_channel_count)))
+
+	var swrCtx *C.struct_SwrContext = nil
+
+	swrCtx = C.swr_alloc_set_opts(swrCtx,
+		out_channel_layout,
+		out_sample_format,
+		C.int(out_sample_rate),
+		in_channel_layout,
+		in_sample_format,
+		C.int(in_sample_rate),
+		0,
+		unsafe.Pointer(nil))
+
+	ctx := &SwrCtx{
+		swrCtx:       swrCtx,
+		channels:     out_channel_count,
+		format:       out_sample_format,
+		sampleRate:   out_sample_rate,
+		inSampleRate: in_sample_rate,
+		layout:       int(out_channel_layout),
+	}
+
+	if ret := int(C.swr_init(ctx.swrCtx)); ret < 0 {
+		return nil, fmt.Errorf("error initializing swr context - %s", AvError(ret))
+	}
+
+	return ctx, nil
+
+	// init with sws
+
 }
 
 func NewSwrCtx(options []*Option, channels int, format int32) (*SwrCtx, error) {
@@ -59,9 +102,18 @@ func (ctx *SwrCtx) Convert(input *Frame) (*Frame, error) {
 		err error
 	)
 
-	if dst, err = NewAudioFrame(ctx.format, ctx.channels, input.NbSamples()); err != nil {
+	out_samples := int(C.av_rescale_rnd(
+		C.swr_get_delay(ctx.swrCtx, C.int64_t(ctx.inSampleRate))+
+			C.int64_t(input.NbSamples()),
+		C.int64_t(ctx.sampleRate),
+		C.int64_t(ctx.inSampleRate),
+		AV_ROUND_UP))
+
+	if dst, err = NewAudioFrame(ctx.format, ctx.channels, out_samples); err != nil {
 		return nil, fmt.Errorf("error creating new audio frame - %s\n", err)
 	}
+
+	dst.SetChannelLayout(ctx.layout)
 
 	C.gmf_sw_resample(ctx.swrCtx, dst.avFrame, input.avFrame)
 
@@ -77,7 +129,7 @@ func (ctx *SwrCtx) Flush(nbSamples int) (*Frame, error) {
 	if dst, err = NewAudioFrame(ctx.format, ctx.channels, nbSamples); err != nil {
 		return nil, fmt.Errorf("error creating new audio frame - %s\n", err)
 	}
-
+	dst.SetChannelLayout(ctx.layout)
 	C.gmf_swr_flush(ctx.swrCtx, dst.avFrame)
 
 	return dst, nil
